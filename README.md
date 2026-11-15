@@ -1,4 +1,4 @@
-# strata-ddkRDN3
+# strata-ddkRDNA3
 
 **Strata 的 RDNA3（gfx1100）优化分支 —— 面向 AMD RX 7900 XTX + Windows HIP。**
 
