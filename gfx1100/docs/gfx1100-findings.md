@@ -1,7 +1,7 @@
 # gfx1100（RX 7900 XTX）实测结论
 
 所有数字来自同一台机器：RX 7900 XTX 24 GB、Ryzen 7 9700X（8C/16T）、125.5 GiB 内存、
-Windows 10、HIP（`amdhip64_7`）、Strata 0.1.49.1、Qwen3.8-Flash-Next UD-IQ4_XS。
+Windows 11、HIP（`amdhip64_7`）、Strata 0.1.49.1、Qwen3.8-Flash-Next UD-IQ4_XS。
 
 ---
 

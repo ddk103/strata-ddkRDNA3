@@ -73,6 +73,32 @@ gfx1100/
 
 ---
 
+## Tested configuration
+
+**Every number below was measured on this exact setup.** Change the model, the quant,
+the engine flags or the driver and the figures no longer compare. The full list — all 47
+environment variables, every launch flag — is in
+[gfx1100/docs/test-environment.md](gfx1100/docs/test-environment.md).
+
+| | |
+|---|---|
+| GPU | AMD Radeon RX 7900 XTX 24 GB (gfx1100), driver `32.0.21030.2001` |
+| CPU | AMD Ryzen 7 9700X, 8C / 16T |
+| RAM | 125.5 GiB |
+| OS | **Windows 11 Pro `10.0.26200`**, HIP (`amdhip64_7.dll`) |
+| Engine | Strata **0.1.49.1**, built from this tree |
+| Model | **Qwen3.8-Flash-Next**, Unsloth Dynamic **`UD-IQ4_XS`**, **4.23 BPW**, **87.24 GB** / 4 shards |
+| Quant layout | mixed per-tensor: routed experts IQ2_S/IQ3_XXS/IQ4_XS/IQ4_NL/Q5_0, attention Q6_K/Q8_0, router **F32**, n-gram table IQ4_NL |
+| Prompt / output | fixed ~**1.5K token** prompt, **256 token** cap, `temperature 0` |
+| Sampling | 2 warm-ups discarded; 16 baseline / 32 treatment runs; `decode_tok_s` from `/metrics` matched by request timestamp |
+
+> ⚠️ **The 47 environment variables are not compiled into any default.** `arch_defaults.cpp`
+> ships branches for gfx12, gfx1151 and iGPU parts — **not for gfx1100**. Building this tree
+> and starting it with upstream defaults gives you the *untuned* engine, and none of these
+> numbers reproduce. Use `gfx1100/configs/fork-8090.example.json`.
+
+---
+
 ## Measured results
 
 ### 1. Conversation cache — the single biggest win
@@ -128,7 +154,7 @@ GPU work is wasted.
 
 1. **Baseline is v0.1.49.1.** Upstream never published a git tag for that version, so this
    tree should not be merged with `main`.
-2. **Verified on exactly one configuration**: RX 7900 XTX 24 GB + Windows 10 19045 + HIP
+2. **Verified on exactly one configuration**: RX 7900 XTX 24 GB + Windows 11 26200 + HIP
    (`amdhip64_7`). Linux, the official ROCm stack and other RDNA3 cards (7800 XT / 7700 XT /
    7600) are **untested**.
 3. The changes touch CUDA/HIP kernels and CMake, so **a different compiler version may fail

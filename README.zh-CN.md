@@ -71,6 +71,30 @@ gfx1100/
 
 ---
 
+## 测试环境（复现这组数字的唯一条件）
+
+**下面所有性能数字都是在这套配置下测出来的。** 换模型、换量化、改引擎开关或驱动版本，
+数字都不能直接比。完整清单（47 个环境变量、每一个启动参数）见
+[gfx1100/docs/test-environment.md](gfx1100/docs/test-environment.md)。
+
+| | |
+|---|---|
+| GPU | AMD Radeon RX 7900 XTX 24 GB（gfx1100），驱动 `32.0.21030.2001` |
+| CPU | AMD Ryzen 7 9700X，8 核 / 16 线程 |
+| 内存 | 125.5 GiB |
+| 系统 | **Windows 11 专业版 `10.0.26200`**，HIP（`amdhip64_7.dll`） |
+| 引擎 | Strata **0.1.49.1**，由本仓库源码构建 |
+| 模型 | **Qwen3.8-Flash-Next**，Unsloth Dynamic **`UD-IQ4_XS`**，**4.23 BPW**，**87.24 GB** / 4 分片 |
+| 量化构成 | 逐张量混合：路由专家 IQ2_S/IQ3_XXS/IQ4_XS/IQ4_NL/Q5_0，注意力 Q6_K/Q8_0，路由器 **F32**，n-gram 表 IQ4_NL |
+| 提示词/输出 | 固定约 **1.5K token** 提示词，**256 token** 输出上限，`temperature 0` |
+| 取样 | 丢弃 2 次预热；基线 16 次 / 对照组 32 次；`decode_tok_s` 取自 `/metrics`，按请求时间戳匹配 |
+
+> ⚠️ **那 47 个环境变量没有编译进任何默认值。** `arch_defaults.cpp` 只有 gfx12、gfx1151 和
+> iGPU 三个分支，**没有 gfx1100**。用本仓库源码编译、以上游默认配置启动，跑的是**未调优**的
+> 引擎，这组数字复现不出来。请使用 `gfx1100/configs/fork-8090.example.json`。
+
+---
+
 ## 实测结果
 
 ### 1. 会话缓存 —— 本次最大收益
@@ -123,7 +147,7 @@ gfx1100/
 ### 兼容性
 
 1. **基线是 v0.1.49.1**。上游从未为这个版本发过 git tag，所以本分支不宜与 `main` 合并。
-2. **只在一种配置上验证过**：RX 7900 XTX 24 GB + Windows 10 19045 + HIP（`amdhip64_7`）。
+2. **只在一种配置上验证过**：RX 7900 XTX 24 GB + Windows 11 26200 + HIP（`amdhip64_7`）。
    Linux、官方 ROCm 栈、其他 RDNA3 卡（7800 XT / 7700 XT / 7600）**都没测过**。
 3. 改动涉及 CUDA/HIP 内核与 CMake，**换编译器版本可能编不过**。
 
