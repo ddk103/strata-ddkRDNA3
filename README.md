@@ -1,198 +1,190 @@
 # strata-ddkRDNA3
 
-**Strata 的 RDNA3（gfx1100）优化分支 —— 面向 AMD RX 7900 XTX + Windows HIP。**
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-基于 [Niko1221/Strata](https://github.com/Niko1221/Strata) **v0.1.49.1**，在其上做了
-14 个文件的移植修改（+663 / −29 行），并附上完整的实测调优记录。
+**An RDNA3 (gfx1100) focused fork of Strata — built for the AMD RX 7900 XTX on Windows HIP.**
 
-> An RDNA3-focused fork of Strata, built on v0.1.49.1, for RX 7900 XTX on Windows HIP.
-> See the English summary at the bottom.
+Based on [Niko1221/Strata](https://github.com/Niko1221/Strata) **v0.1.49.1**, with ported
+modifications across 14 files (+663 / −29 lines) and a complete record of the tuning
+work behind them.
 
 ---
 
-## 这个分支做了什么
+## Why this fork exists
 
-gfx1100 在 Strata 里处境特殊：`src/core/arch_defaults.cpp` 里那张 21 项默认开关表
-**只对 gfx1151（Strix Halo）生效**，7900 XTX 上全部默认关闭，每个用户都得自己回移。
+gfx1100 is in an awkward spot inside Strata. The 21-entry default switch table in
+`src/core/arch_defaults.cpp` only applies when the GPU is a **gfx1151 (Strix Halo)**:
 
-这个分支把散落在几个项目里的技术移植到了 0.1.49.1 上：
+```cpp
+if (!strata::kernels::gfx_arch_is_gfx1151(gcn_arch)) return t;
+```
 
-| 开关 / 改动 | 作用 | 原始出处 |
+So on a 7900 XTX every one of those switches ships **off** by default, and each user ends
+up back-porting them by hand. That is why the RDNA3 fork scene exists at all.
+
+This branch ports several published techniques onto 0.1.49.1:
+
+| Switch / change | What it does | Origin |
 |---|---|---|
-| `STRATA_STACK_ISOLATE` | Windows HIP 下预留 1 TiB 以下地址空间、隔离首线程栈 | 上游 issue **#3431** |
-| `STRATA_VERIFY_DEFER_CPU` | CPU 专家行延后一层并入残差（**改变输出**，opt-in） | pancake-strata |
-| `STRATA_POOL_FUSE_PHASES` | mode 7：gate/up 与 down 合并进同一 phase | pancake-strata item 29 |
-| `STRATA_POOL_TAIL4` | phase 末尾任务切 1/4，缩短尾巴 | basalt `553e9290d` |
-| `resample_row` / `logit_bias` | 语法约束下对某一行重新抽取 | basalt `d64768699` / `02e1006fe` |
-| `STRATA_PREFILL_COPY_EVENT_EVERY`、`_WAIT_DEDUPE` | 预填阶段拷贝事件去重 | pancake-strata |
-| `serve/grammar.py` 接入 | `--grammar on` 让工具调用与 JSON 输出受语法约束 | 见 [NOTICE.md](NOTICE.md) |
+| `STRATA_STACK_ISOLATE` | Reserves the free address space below 1 TiB and gives the first thread its own stack (Windows HIP) | upstream issue **#3431** |
+| `STRATA_VERIFY_DEFER_CPU` | Defers a decode window's CPU expert rows into the next layer's residual (**changes output**, opt-in) | pancake-strata |
+| `STRATA_POOL_FUSE_PHASES` | Mode 7: gate/up and down run in one phase | pancake-strata item 29 |
+| `STRATA_POOL_TAIL4` | Splits a phase's tail tasks to 1/4 size | basalt `553e9290d` |
+| `resample_row` / `logit_bias` | Redraws a single row under grammar constraints | basalt `d64768699` / `02e1006fe` |
+| `STRATA_PREFILL_COPY_EVENT_EVERY`, `_WAIT_DEDUPE` | Deduplicates prefill copy events | pancake-strata |
+| `serve/grammar.py` wiring | `--grammar on` constrains tool calls and JSON output | see [NOTICE.md](NOTICE.md) |
 
-改动清单（`gfx1100/patches/strata-0.1.49.1-gfx1100.patch` 可查看完整 diff）：
+Change list (`gfx1100/patches/strata-0.1.49.1-gfx1100.patch` has the full diff):
 
 ```
 src/program/generate.cpp          +169      src/kernels/cuda/gr.cu            +45
 src/core/pinned.cu                +119      src/kernels/cuda/elementwise.cu   +35
 src/prefill/prefill.cpp            +99      CMakeLists.txt                    +17
 src/kernels/cpu/pool.cpp           +86      serve/server.py                   +17
-src/core/verify.cpp                +66      + 5 个头文件
+src/core/verify.cpp                +66      + 5 headers
 ```
 
-**这些技术都是别人发表的，移植工作是我做的。** 完整署名链在 [NOTICE.md](NOTICE.md)。
+**None of these techniques are mine.** The algorithms and kernels belong to their
+respective authors; the porting to 0.1.49.1 is what this branch adds. Full attribution
+chain in [NOTICE.md](NOTICE.md).
 
 ---
 
-## `gfx1100/` 目录
+## `gfx1100/` — the tuning record
 
 ```
 gfx1100/
 ├── docs/
-│   ├── gfx1100-findings.md      gfx1100 实测结论：哪些开关真有用、哪些没用
-│   ├── TUNING-LOG.md            调优台账：每项改动的原值、新值、验证、回滚
-│   ├── quantization-plan.md     领域特化量化的完整方案（imatrix + 逐张量精度）
-│   ├── comparison-protocol.md   两个配置/模型的对比协议
-│   └── corpus-notes.txt         校准语料的构建说明
+│   ├── gfx1100-findings.md      which switches actually help on gfx1100, which don't
+│   ├── TUNING-LOG.md            every change with its old value, new value and rollback
+│   ├── quantization-plan.md     domain-specific quantization via imatrix + per-tensor types
+│   ├── comparison-protocol.md   how to A/B two configs or models
+│   └── corpus-notes.txt         how the calibration corpus was assembled
 ├── configs/
-│   ├── fork-8090.example.json   引擎配置样例（47 个环境变量、队列与会话缓存参数）
-│   ├── glm-3.0bit.example.json  GLM-5.3-Flash 在 PolyStrata 上的启动配置
-│   └── game-types.txt           llama-quantize 逐张量精度表
+│   ├── fork-8090.example.json   engine config sample (47 env vars, queue and cache settings)
+│   ├── glm-3.0bit.example.json  GLM-5.3-Flash launch config on PolyStrata
+│   └── game-types.txt           llama-quantize per-tensor precision table
 ├── bench/
-│   ├── bench.py                 解码速度 A/B 基准脚本
-│   └── bench-*.json             原始测量数据
+│   ├── bench.py                 decode-speed A/B benchmark
+│   └── bench-*.json             raw measurements
 └── patches/
-    └── strata-0.1.49.1-gfx1100.patch    完整 diff（14 文件，+663/−29）
+    └── strata-0.1.49.1-gfx1100.patch    14 files, +663/−29
 ```
 
 ---
 
-## 实测数据
+## Measured results
 
-### 1. 会话缓存：本次最大收益
+### 1. Conversation cache — the single biggest win
 
-默认 `--conversation-cache-mib auto` 封顶 8 GiB，只放得下 3 个约 96K token 的会话。
-多个 agent 会话交替时互相挤掉，每次都要全量重读提示词。
+The default `--conversation-cache-mib auto` caps at 8 GiB, which holds only ~3 sessions
+of ~96K tokens each. With several agent sessions alternating, they evict each other and
+every turn re-reads the whole prompt.
 
-| 参数 | 改前 | 改后 |
+| Setting | Before | After |
 |---|---|---|
-| `--conversation-cache-mib` | auto（8192） | **16384** |
+| `--conversation-cache-mib` | auto (8192) | **16384** |
 | `--conversation-cache-slots` | 4 | **8** |
 
 ```
-改前：淘汰 142 次，最近一次只复用 21,357 / 96,075 token → 冷预填 25~40 秒
-改后：淘汰 0 次，驻留 5~6 个会话，复用率 97~100%   → 预填 1~3 秒
+before: 142 evictions, last request reused 21,357 / 96,075 tokens → 25–40 s cold prefill
+after :   0 evictions, 5–6 sessions parked, 97–100% reuse      →  1–3 s prefill
 ```
 
-会话缓存走主机内存，不占显存——这是它性价比高的原因。
+The conversation cache lives in **host RAM**, not VRAM — that is why the trade is so good.
 
-### 2. 两个解码开关
+### 2. Two decode switches
 
-`bench/bench.py`：固定 1.5K 提示词 + 固定输出 256 token + `temperature 0`，
-预热 2 次后连续取样，从 `/metrics` 按请求时间戳取对应 `decode_tok_s`。
+`bench/bench.py`: fixed ~1.5K prompt, fixed 256-token output, `temperature 0`, two warm-up
+runs, then sampling `decode_tok_s` from `/metrics` matched by request timestamp.
 
-| | 基线 | `STRATA_TSUM=1` + `STRATA_RDNA_Q6K=1` |
+| | Baseline | `STRATA_TSUM=1` + `STRATA_RDNA_Q6K=1` |
 |---|---|---|
-| 样本 | 16 | 32 |
-| 均值 | 88.23 tok/s | 89.60 tok/s（**+1.5%**） |
-| 中位数 | 88.15 tok/s | 90.10 tok/s（**+2.2%**） |
-| Welch t | — | 1.43（**未达显著**） |
-| 95% 置信区间 | — | −0.50 … +3.23 tok/s |
+| Samples | 16 | 32 |
+| Mean | 88.23 tok/s | 89.60 tok/s (**+1.5%**) |
+| Median | 88.15 tok/s | 90.10 tok/s (**+2.2%**) |
+| Welch t | — | 1.43 (**not significant**) |
+| 95% CI | — | −0.50 … +3.23 tok/s |
 
-方向为正，但统计上无法证明。两个开关都不改变体积与显存，最坏情况是零收益，所以保留。
+Directionally positive, but not statistically provable. Neither switch changes model size
+or VRAM, so the worst case is zero gain — which is why they are kept.
 
-### 3. 队列模型
+### 3. Queue model
 
-| 参数 | 值 | 作用 |
+| Setting | Value | What it does |
 |---|---|---|
-| `max_queue` | 5 | 准入上限 = `max(1, batch) + max_queue` = 6 |
-| `queue_timeout` | 270 | 排队超 270 秒回 `429 queue_wait_timeout`，早于客户端 300 秒空闲超时 |
+| `max_queue` | 5 | Admission cap = `max(1, batch) + max_queue` = 6 |
+| `queue_timeout` | 270 | Requests waiting longer than 270 s get `429 queue_wait_timeout`, inside the client's 300 s idle timeout |
 
-教训：`max_queue: 0`（准入 1）会让客户端 5 次重试全吃 429；不设上限则队列无限增长，
-请求排过 300 秒后客户端主动断开，白烧 GPU。
+Lesson learned: `max_queue: 0` (cap of 1) makes a client exhaust its 5 retries on 429s;
+no cap at all lets the queue grow without bound until the client aborts at 300 s and the
+GPU work is wasted.
 
 ---
 
-## ⚠️ 注意事项
+## ⚠️ Read this before using
 
-### 兼容性
+### Compatibility
 
-1. **基线是 v0.1.49.1**。上游没有为这个版本发布 git tag，所以本分支的代码不宜直接和
-   `main` 分支 merge。
-2. **只在一种配置上验证过**：RX 7900 XTX 24 GB + Windows 10 19045 + HIP（`amdhip64_7`）。
-   Linux、ROCm 官方栈、其他 RDNA3 卡（7800 XT / 7700 XT / 7600）**都没测过**。
-3. 改动涉及 CUDA/HIP 内核与 CMake，**换编译器版本可能编不过**。
+1. **Baseline is v0.1.49.1.** Upstream never published a git tag for that version, so this
+   tree should not be merged with `main`.
+2. **Verified on exactly one configuration**: RX 7900 XTX 24 GB + Windows 10 19045 + HIP
+   (`amdhip64_7`). Linux, the official ROCm stack and other RDNA3 cards (7800 XT / 7700 XT /
+   7600) are **untested**.
+3. The changes touch CUDA/HIP kernels and CMake, so **a different compiler version may fail
+   to build**.
 
-### 不含的东西
+### Not included
 
-4. **不含任何 AMD 专有二进制**：ROCm 运行时（`amdhip64_7.dll`、`amd_comgr.dll`）、
-   hipBLASLt 调优表、rocBLAS 库，都需要自行安装 ROCm 或从官方包获取。
-5. **不含模型权重**，也不含任何 GGUF。
-6. 不含预编译的 `strata.exe`。
+4. **No AMD proprietary binaries**: the ROCm runtime (`amdhip64_7.dll`, `amd_comgr.dll`),
+   hipBLASLt tuning tables and rocBLAS libraries must be installed separately.
+5. **No model weights**, no GGUF files.
+6. No prebuilt `strata.exe`.
 
-### 性能数字
+### About the numbers
 
-7. 所有数字都是**单机、单次会话、3~5% 噪声**下的测量，不是权威基准。
-   同机重复测的波动可能超过被测差异本身。
-8. **短上下文和长上下文的解码速度差很多**：1.5K 上下文约 88 tok/s，
-   10 万 token 上下文约 68 tok/s（因为长上下文有 KV streaming）。跨长度比较无意义。
+7. Every figure is a **single-machine, single-session measurement with 3–5% noise**. It is
+   not an authoritative benchmark; repeating it on the same machine can swing more than the
+   difference being measured.
+8. **Short and long contexts differ a lot**: ~88 tok/s at 1.5K context, ~68 tok/s at 100K
+   (long contexts do KV streaming). Comparing figures across context lengths is meaningless.
 
-### 输出质量
+### Output quality
 
-9. **部分改动会改变输出**，尤其 `STRATA_VERIFY_DEFER_CPU`（代码注释里明写
-   "changes the output"）。做逐位对比（bit-identical A/B）前必须关掉。
-10. `STRATA_RDNA_Q6K`、`STRATA_TSUM` 属于求和顺序优化，理论上等价，
-    但**不保证逐位一致**。
+9. **Some changes alter the output**, notably `STRATA_VERIFY_DEFER_CPU` (the code comment
+   literally says "changes the output"). Turn those off before a bit-identical A/B.
+10. `STRATA_RDNA_Q6K` and `STRATA_TSUM` are summation-order optimisations. They are
+    mathematically equivalent but **not guaranteed bit-identical**.
 
-### 安全
+### Security
 
-11. 配置样例里的 `api_key` 已替换为占位符。部署前换成你自己的强随机值，
-    不要把真实 key 提交回仓库。
-12. 样例配置默认监听 `0.0.0.0`。不需要局域网访问就改回 `127.0.0.1`。
+11. The example configs have a placeholder `api_key`. Replace it with your own strong random
+    value before deploying, and never commit a real key.
+12. The sample config listens on `0.0.0.0`. Switch it back to `127.0.0.1` if you do not need
+    LAN access.
 
 ---
 
-## 构建
+## Building
 
-构建步骤与上游一致，见 [README.upstream.md](README.upstream.md) 和
-上游的 `docs/INSTALL.md`、`docs/AMD_HIP.md`。
+Same procedure as upstream — see [README.upstream.md](README.upstream.md) and the upstream
+`docs/INSTALL.md` / `docs/AMD_HIP.md`.
 
-Windows + HIP 的关键点：
+Key points for Windows + HIP:
 
-- 需要 ROCm 或 AMD HIP SDK（提供 `amdhip64_7.dll`）
-- 需要 CMake ≥ 3.24 + 支持 HIP 的 MSVC / clang
+- ROCm or the AMD HIP SDK must be installed (it provides `amdhip64_7.dll`)
+- CMake ≥ 3.24 plus a HIP-capable MSVC or clang
 - `-DCMAKE_HIP_ARCHITECTURES=gfx1100`
-- 首次编译 10~20 分钟
+- The first build takes 10–20 minutes
 
 ---
 
-## 许可
+## License
 
-**MIT**。见 [LICENSE](LICENSE) —— 上游版权声明原样保留。
+**MIT**. See [LICENSE](LICENSE) — the upstream copyright notice is retained verbatim.
 
-上游主体版权：Copyright (c) 2026 **Niko1221 and the Strata contributors**。
-移植的技术版权归 pancake-strata、basalt、llama.cpp 各自作者。
-本分支仅覆盖"把这些技术移植到 0.1.49.1"及调优记录这层工作。
+Upstream copyright: Copyright (c) 2026 **Niko1221 and the Strata contributors**.
+Ported techniques remain copyright of their respective authors (pancake-strata, basalt,
+llama.cpp). This branch covers only the porting to 0.1.49.1 and the tuning record.
 
-完整署名链： [NOTICE.md](NOTICE.md)
-
----
-
-## English summary
-
-An RDNA3 (gfx1100) focused fork of [Strata](https://github.com/Niko1221/Strata),
-based on **v0.1.49.1**.
-
-It ports several published optimisations onto that version: Windows HIP stack
-isolation (upstream issue #3431), deferred CPU expert rows and pool phase fusion
-(pancake-strata), tail-4 task splitting and `resample_row`/`logit_bias` (basalt),
-plus prefill copy deduplication. 14 files, +663/−29.
-
-It also documents a tuning campaign: raising the conversation cache from 8 GiB to
-16 GiB cut cold prefill from 25–40 s to 1–3 s and eliminated cache evictions
-(142 → 0); queue admission and timeout settings were chosen against measured
-failure modes.
-
-**Verified only on** RX 7900 XTX 24 GB / Windows 10 / HIP. No AMD proprietary
-binaries, no model weights, no prebuilt engine are included. Benchmark figures are
-single-run measurements with 3–5% noise, not authoritative.
-
-MIT licensed; upstream copyright notices retained. See NOTICE.md for the full
-attribution chain.
+Full attribution chain: [NOTICE.md](NOTICE.md)

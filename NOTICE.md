@@ -1,4 +1,19 @@
-# NOTICE — 来源与署名
+# NOTICE — Attribution
+
+> **English summary.** `strata-ddkRDNA3` is an RDNA3 (gfx1100) fork of
+> [Niko1221/Strata](https://github.com/Niko1221/Strata) at **v0.1.49.1**. The engine code
+> is upstream's; this branch adds ported modifications to 14 files. **No algorithm or
+> kernel in this repository is original work by this branch.** The techniques come from
+> Strata issue #3431 (Windows HIP stack isolation), [pancake-strata](https://github.com/rocktboy1982/pancake-strata)
+> (deferred CPU expert rows, pool phase fusion, prefill copy dedupe), and
+> [basalt](https://github.com/jesdga95/basalt) (tail-4 tasks, `resample_row` / `logit_bias`).
+> The GBNF grammar engine underneath is [llama.cpp](https://github.com/ggml-org/llama.cpp)'s.
+> All of the above are MIT. Only the porting to 0.1.49.1 and the tuning record are this
+> branch's work. Corrections to any attribution are welcome via an issue.
+
+---
+
+# 来源与署名（中文）
 
 **strata-ddkRDNA3 是 Strata 的一个 RDNA3（gfx1100）分支**，基线版本 v0.1.49.1。
 仓库里的引擎主体代码来自上游，本分支的改动是 14 个文件的移植修改。
