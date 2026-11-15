@@ -1,164 +1,198 @@
 # strata-ddkRDN3
 
-**Strata 在 AMD RX 7900 XTX（RDNA3 / gfx1100）+ Windows HIP 下的补丁集与实测调优记录。**
+**Strata 的 RDNA3（gfx1100）优化分支 —— 面向 AMD RX 7900 XTX + Windows HIP。**
 
-A patch set and tuning record for [Strata](https://github.com/Niko1221/Strata) on RDNA3
-(gfx1100) under Windows HIP. Chinese-first; English summary at the bottom.
+基于 [Niko1221/Strata](https://github.com/Niko1221/Strata) **v0.1.49.1**，在其上做了
+14 个文件的移植修改（+663 / −29 行），并附上完整的实测调优记录。
 
----
-
-## ⚠️ 这不是一个引擎
-
-**这是补丁，不是引擎。** 仓库里没有引擎源码，只有 14 个文件的 unified diff 和实测记录。
-要跑起来，你需要自己准备上游 Strata v0.1.49.1 的源码。
-
-**基线版本：`v0.1.49.1`**（`CMakeLists.txt` 里 `project(strata VERSION 0.1.49.1)`）。
-
-> 注意：上游**没有为这个版本发布 git tag**，所以补丁大概率对不上其他版本。
-> 打之前先看 `git apply --check`。
+> An RDNA3-focused fork of Strata, built on v0.1.49.1, for RX 7900 XTX on Windows HIP.
+> See the English summary at the bottom.
 
 ---
 
-## 包含什么
+## 这个分支做了什么
 
-```
-patches/strata-0.1.49.1-gfx1100.patch   14 个文件，+676 / −42 行
-configs/fork-8090.example.json          脱敏后的引擎配置（47 个环境变量、队列与会话缓存参数）
-configs/glm-3.0bit.example.json         GLM-5.3-Flash 在 PolyStrata 上的启动配置
-configs/game-types.txt                  llama-quantize 的逐张量精度表（游戏开发特化量化用）
-bench/bench.py                          解码速度 A/B 基准脚本
-bench/bench-*.json                      原始测量数据（基线 / 加开关）
-docs/TUNING-LOG.md                      调优台账：每项改动的原值、新值、验证、回滚
-docs/gfx1100-findings.md                哪些开关实测有用、哪些没用
-docs/quantization-plan.md               领域特化量化的完整方案
-docs/comparison-protocol.md             两个模型/配置的对比协议
-docs/corpus-notes.txt                   构建校准语料的说明
-```
+gfx1100 在 Strata 里处境特殊：`src/core/arch_defaults.cpp` 里那张 21 项默认开关表
+**只对 gfx1151（Strix Halo）生效**，7900 XTX 上全部默认关闭，每个用户都得自己回移。
 
----
-
-## 补丁内容（全部是从别处移植，非原创）
-
-这个补丁把散落在几个项目里的技术移植到了 0.1.49.1 这一版上：
+这个分支把散落在几个项目里的技术移植到了 0.1.49.1 上：
 
 | 开关 / 改动 | 作用 | 原始出处 |
 |---|---|---|
 | `STRATA_STACK_ISOLATE` | Windows HIP 下预留 1 TiB 以下地址空间、隔离首线程栈 | 上游 issue **#3431** |
-| `STRATA_VERIFY_DEFER_CPU` | 把 CPU 专家行延后一层并入残差（**会改变输出**，opt-in） | pancake-strata |
-| `STRATA_POOL_FUSE_PHASES` | mode 7：把 gate/up 与 down 合并进同一 phase | pancake-strata item 29 |
-| `STRATA_POOL_TAIL4` | 一个 phase 末尾的任务切成 1/4 大小以减少尾巴 | basalt `553e9290d` |
+| `STRATA_VERIFY_DEFER_CPU` | CPU 专家行延后一层并入残差（**改变输出**，opt-in） | pancake-strata |
+| `STRATA_POOL_FUSE_PHASES` | mode 7：gate/up 与 down 合并进同一 phase | pancake-strata item 29 |
+| `STRATA_POOL_TAIL4` | phase 末尾任务切 1/4，缩短尾巴 | basalt `553e9290d` |
 | `resample_row` / `logit_bias` | 语法约束下对某一行重新抽取 | basalt `d64768699` / `02e1006fe` |
 | `STRATA_PREFILL_COPY_EVENT_EVERY`、`_WAIT_DEDUPE` | 预填阶段拷贝事件去重 | pancake-strata |
 | `serve/grammar.py` 接入 | `--grammar on` 让工具调用与 JSON 输出受语法约束 | 见 [NOTICE.md](NOTICE.md) |
 
-**移植工作本身是我的；算法和内核不是。** 完整的署名链在 [NOTICE.md](NOTICE.md)，
-如果哪一处的归属写错了，请开 issue 指正。
+改动清单（`gfx1100/patches/strata-0.1.49.1-gfx1100.patch` 可查看完整 diff）：
 
----
-
-## ⚠️ 注意事项（务必读）
-
-### 兼容性
-
-1. **基线是 v0.1.49.1，上游没有该版本的 tag。** 补丁对不上 0.2.x。
-2. **只在一种配置上验证过**：RX 7900 XTX 24 GB + Windows 10 19045 + HIP（`amdhip64_7`）。
-   Linux、ROCm 官方栈、其他 RDNA3 卡（7800 XT / 7700 XT）**都没测过**。
-3. 补丁涉及 CUDA/HIP 内核与构建脚本，**换编译器版本可能编不过**。
-
-### 不含的东西
-
-4. **不含任何 AMD 专有二进制**：ROCm 运行时（`amdhip64_7.dll`、`amd_comgr.dll`）、
-   hipBLASLt 调优表、rocBLAS 库，都需要你自己装 ROCm / 从官方包获取。
-5. **不含模型权重**，也不含任何 GGUF。
-6. 不含 `strata.exe` 或其他预编译引擎。
-
-### 关于性能数字
-
-7. 仓库里的性能数字是**单机、单次会话、3~5% 噪声**下的测量，不是权威基准。
-   同一台机器上重复测，波动范围可能超过被测差异本身。
-8. 短上下文和长上下文的解码速度差很多（本例：1.5K 上下文约 88 tok/s，
-   10 万 token 上下文约 68 tok/s，因为长上下文有 KV streaming）。
-   跨上下文长度比较数字没有意义。
-
-### 关于输出质量
-
-9. **部分改动会改变输出**，尤其是 `STRATA_VERIFY_DEFER_CPU`（注释里明写 "changes the output"）。
-   做逐位对比（bit-identical A/B）之前必须把这些开关关掉。
-10. `STRATA_RDNA_Q6K`、`STRATA_TSUM` 这类求和顺序优化理论上等价，但**不保证逐位一致**。
-
-### 安全
-
-11. 配置样例里的 `api_key` 已替换为占位符。**部署前改成你自己的强随机值**，
-    并且不要把真实 key 提交回仓库。
-12. 样例配置默认监听 `0.0.0.0`。如果你不需要局域网访问，改回 `127.0.0.1`。
-
-### 法律
-
-13. **MIT 许可，无任何担保**。见 [LICENSE](LICENSE)。
-14. 上游版权归 **Niko1221 and the Strata contributors**；移植的算法版权归各自作者。
-    本仓库只覆盖"把这些东西移植到 0.1.49.1"这层工作。
-
----
-
-## 怎么打补丁
-
-```bash
-# 1. 准备上游源码（v0.1.49.1）
-#    上游没发 tag，只能靠 commit 或发行包里的源码
-
-# 2. 试打，不写入
-git apply --check patches/strata-0.1.49.1-gfx1100.patch
-
-# 3. 正式打
-git apply patches/strata-0.1.49.1-gfx1100.patch
-
-# 4. 构建（Windows + HIP 示例）
+```
+src/program/generate.cpp          +169      src/kernels/cuda/gr.cu            +45
+src/core/pinned.cu                +119      src/kernels/cuda/elementwise.cu   +35
+src/prefill/prefill.cpp            +99      CMakeLists.txt                    +17
+src/kernels/cpu/pool.cpp           +86      serve/server.py                   +17
+src/core/verify.cpp                +66      + 5 个头文件
 ```
 
-> 如果 `--check` 报冲突，说明你的基线和 0.1.49.1 不一致，**不要强行打**。
+**这些技术都是别人发表的，移植工作是我做的。** 完整署名链在 [NOTICE.md](NOTICE.md)。
 
 ---
 
-## 实测：两个解码开关的效果
+## `gfx1100/` 目录
 
-`bench/bench.py` 固定提示词（约 1.5K token）+ 固定输出 256 token + `temperature 0`，
-预热 2 次后连续取样，从 `/metrics` 按请求时间戳取对应的 `decode_tok_s`。
+```
+gfx1100/
+├── docs/
+│   ├── gfx1100-findings.md      gfx1100 实测结论：哪些开关真有用、哪些没用
+│   ├── TUNING-LOG.md            调优台账：每项改动的原值、新值、验证、回滚
+│   ├── quantization-plan.md     领域特化量化的完整方案（imatrix + 逐张量精度）
+│   ├── comparison-protocol.md   两个配置/模型的对比协议
+│   └── corpus-notes.txt         校准语料的构建说明
+├── configs/
+│   ├── fork-8090.example.json   引擎配置样例（47 个环境变量、队列与会话缓存参数）
+│   ├── glm-3.0bit.example.json  GLM-5.3-Flash 在 PolyStrata 上的启动配置
+│   └── game-types.txt           llama-quantize 逐张量精度表
+├── bench/
+│   ├── bench.py                 解码速度 A/B 基准脚本
+│   └── bench-*.json             原始测量数据
+└── patches/
+    └── strata-0.1.49.1-gfx1100.patch    完整 diff（14 文件，+663/−29）
+```
+
+---
+
+## 实测数据
+
+### 1. 会话缓存：本次最大收益
+
+默认 `--conversation-cache-mib auto` 封顶 8 GiB，只放得下 3 个约 96K token 的会话。
+多个 agent 会话交替时互相挤掉，每次都要全量重读提示词。
+
+| 参数 | 改前 | 改后 |
+|---|---|---|
+| `--conversation-cache-mib` | auto（8192） | **16384** |
+| `--conversation-cache-slots` | 4 | **8** |
+
+```
+改前：淘汰 142 次，最近一次只复用 21,357 / 96,075 token → 冷预填 25~40 秒
+改后：淘汰 0 次，驻留 5~6 个会话，复用率 97~100%   → 预填 1~3 秒
+```
+
+会话缓存走主机内存，不占显存——这是它性价比高的原因。
+
+### 2. 两个解码开关
+
+`bench/bench.py`：固定 1.5K 提示词 + 固定输出 256 token + `temperature 0`，
+预热 2 次后连续取样，从 `/metrics` 按请求时间戳取对应 `decode_tok_s`。
 
 | | 基线 | `STRATA_TSUM=1` + `STRATA_RDNA_Q6K=1` |
 |---|---|---|
 | 样本 | 16 | 32 |
 | 均值 | 88.23 tok/s | 89.60 tok/s（**+1.5%**） |
 | 中位数 | 88.15 tok/s | 90.10 tok/s（**+2.2%**） |
-| 标准差 | 2.67 | 3.84 |
 | Welch t | — | 1.43（**未达显著**） |
 | 95% 置信区间 | — | −0.50 … +3.23 tok/s |
 
-**结论**：方向上为正，但统计上无法证明。两个开关都不改变模型体积与显存占用，
-最坏情况是"没有收益"，所以保留了。
+方向为正，但统计上无法证明。两个开关都不改变体积与显存，最坏情况是零收益，所以保留。
 
-**诚实的保留意见**：这台机器测量时背景有别的负载，噪声偏大。
-要严格证明 1.5% 的提升，需要每边 60 个以上的样本、且机器完全空闲。
+### 3. 队列模型
+
+| 参数 | 值 | 作用 |
+|---|---|---|
+| `max_queue` | 5 | 准入上限 = `max(1, batch) + max_queue` = 6 |
+| `queue_timeout` | 270 | 排队超 270 秒回 `429 queue_wait_timeout`，早于客户端 300 秒空闲超时 |
+
+教训：`max_queue: 0`（准入 1）会让客户端 5 次重试全吃 429；不设上限则队列无限增长，
+请求排过 300 秒后客户端主动断开，白烧 GPU。
 
 ---
 
-## 英文摘要
+## ⚠️ 注意事项
 
-A patch set (14 files, +676/−42) that ports several published optimisation techniques
-onto Strata v0.1.49.1 for AMD RDNA3 (gfx1100) on Windows HIP. It contains **no engine
-source and no model weights** — you must supply upstream Strata yourself.
+### 兼容性
 
-Ported from: Strata issue #3431 (Windows HIP stack isolation), pancake-strata
-(deferred CPU expert rows, pool phase fusion, prefill copy dedupe), and basalt
-(tail-4 tasks, `resample_row` / `logit_bias`). All techniques are MIT; see NOTICE.md
-for the full attribution chain.
+1. **基线是 v0.1.49.1**。上游没有为这个版本发布 git tag，所以本分支的代码不宜直接和
+   `main` 分支 merge。
+2. **只在一种配置上验证过**：RX 7900 XTX 24 GB + Windows 10 19045 + HIP（`amdhip64_7`）。
+   Linux、ROCm 官方栈、其他 RDNA3 卡（7800 XT / 7700 XT / 7600）**都没测过**。
+3. 改动涉及 CUDA/HIP 内核与 CMake，**换编译器版本可能编不过**。
 
-Verified only on RX 7900 XTX 24 GB / Windows 10 / HIP. Benchmark figures are single-run
-measurements with 3–5% noise, not authoritative.
+### 不含的东西
 
-MIT licensed, no warranty.
+4. **不含任何 AMD 专有二进制**：ROCm 运行时（`amdhip64_7.dll`、`amd_comgr.dll`）、
+   hipBLASLt 调优表、rocBLAS 库，都需要自行安装 ROCm 或从官方包获取。
+5. **不含模型权重**，也不含任何 GGUF。
+6. 不含预编译的 `strata.exe`。
+
+### 性能数字
+
+7. 所有数字都是**单机、单次会话、3~5% 噪声**下的测量，不是权威基准。
+   同机重复测的波动可能超过被测差异本身。
+8. **短上下文和长上下文的解码速度差很多**：1.5K 上下文约 88 tok/s，
+   10 万 token 上下文约 68 tok/s（因为长上下文有 KV streaming）。跨长度比较无意义。
+
+### 输出质量
+
+9. **部分改动会改变输出**，尤其 `STRATA_VERIFY_DEFER_CPU`（代码注释里明写
+   "changes the output"）。做逐位对比（bit-identical A/B）前必须关掉。
+10. `STRATA_RDNA_Q6K`、`STRATA_TSUM` 属于求和顺序优化，理论上等价，
+    但**不保证逐位一致**。
+
+### 安全
+
+11. 配置样例里的 `api_key` 已替换为占位符。部署前换成你自己的强随机值，
+    不要把真实 key 提交回仓库。
+12. 样例配置默认监听 `0.0.0.0`。不需要局域网访问就改回 `127.0.0.1`。
+
+---
+
+## 构建
+
+构建步骤与上游一致，见 [README.upstream.md](README.upstream.md) 和
+上游的 `docs/INSTALL.md`、`docs/AMD_HIP.md`。
+
+Windows + HIP 的关键点：
+
+- 需要 ROCm 或 AMD HIP SDK（提供 `amdhip64_7.dll`）
+- 需要 CMake ≥ 3.24 + 支持 HIP 的 MSVC / clang
+- `-DCMAKE_HIP_ARCHITECTURES=gfx1100`
+- 首次编译 10~20 分钟
 
 ---
 
 ## 许可
 
-MIT。见 [LICENSE](LICENSE) 与 [NOTICE.md](NOTICE.md)。
+**MIT**。见 [LICENSE](LICENSE) —— 上游版权声明原样保留。
+
+上游主体版权：Copyright (c) 2026 **Niko1221 and the Strata contributors**。
+移植的技术版权归 pancake-strata、basalt、llama.cpp 各自作者。
+本分支仅覆盖"把这些技术移植到 0.1.49.1"及调优记录这层工作。
+
+完整署名链： [NOTICE.md](NOTICE.md)
+
+---
+
+## English summary
+
+An RDNA3 (gfx1100) focused fork of [Strata](https://github.com/Niko1221/Strata),
+based on **v0.1.49.1**.
+
+It ports several published optimisations onto that version: Windows HIP stack
+isolation (upstream issue #3431), deferred CPU expert rows and pool phase fusion
+(pancake-strata), tail-4 task splitting and `resample_row`/`logit_bias` (basalt),
+plus prefill copy deduplication. 14 files, +663/−29.
+
+It also documents a tuning campaign: raising the conversation cache from 8 GiB to
+16 GiB cut cold prefill from 25–40 s to 1–3 s and eliminated cache evictions
+(142 → 0); queue admission and timeout settings were chosen against measured
+failure modes.
+
+**Verified only on** RX 7900 XTX 24 GB / Windows 10 / HIP. No AMD proprietary
+binaries, no model weights, no prebuilt engine are included. Benchmark figures are
+single-run measurements with 3–5% noise, not authoritative.
+
+MIT licensed; upstream copyright notices retained. See NOTICE.md for the full
+attribution chain.
