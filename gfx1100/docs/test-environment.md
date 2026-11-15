@@ -3,6 +3,22 @@
 > 本仓库 `README.md` 里所有性能数字，都是在这套配置下测出来的。
 > 换了任何一项（模型、量化、引擎参数、驱动版本），数字都不能直接比。
 
+> **⚠️ 与 `configs/fork-8090.example.json` 的差异（2026-11-16 更新）**
+>
+> 测量时用的是 **47 个环境变量 + `--max-context 524288 --rope-scaling yarn --rope-scale 2`**。
+> 后来一位第三方使用者实测指出，并回到源码核实确认了三个问题：
+>
+> 1. 模型原生上下文只有 **262,144**（GGUF 元数据 `qwen4exp.context_length`），
+>    `524288 + yarn 2` 是外推，长上下文质量会掉
+> 2. `STRATA_HIPBLASLT_TABLE` 在设了 `STRATA_HIPBLASLT_TUNING` 时**完全不生效**
+> 3. `STRATA_PF_GROUP_RES`、`STRATA_PA_KLDS` 在本版本是 **no-op**
+>
+> 示例配置已改为修正后的 **44 项、`--max-context 262144`、不启用 yarn**。
+> **本文的性能数字不受影响**：基准用的是约 1.5K token 的提示词，
+> `--max-context` 和 rope 设置在这个长度上不参与计算。
+> 逐条核实记录见 [tuning-verdicts.md](tuning-verdicts.md)。
+
+
 ---
 
 ## 1. 硬件

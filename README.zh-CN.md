@@ -59,7 +59,7 @@ gfx1100/
 │   ├── comparison-protocol.md   两个配置/模型的对比协议
 │   └── corpus-notes.txt         校准语料的构建说明
 ├── configs/
-│   ├── fork-8090.example.json   引擎配置样例（47 个环境变量、队列与会话缓存）
+│   ├── fork-8090.example.json   引擎配置样例（44 个环境变量、队列与会话缓存）
 │   ├── glm-3.0bit.example.json  GLM-5.3-Flash 在 PolyStrata 上的启动配置
 │   └── game-types.txt           llama-quantize 逐张量精度表
 ├── bench/
@@ -74,7 +74,7 @@ gfx1100/
 ## 测试环境（复现这组数字的唯一条件）
 
 **下面所有性能数字都是在这套配置下测出来的。** 换模型、换量化、改引擎开关或驱动版本，
-数字都不能直接比。完整清单（47 个环境变量、每一个启动参数）见
+数字都不能直接比。完整清单（44 个环境变量、每一个启动参数）见
 [gfx1100/docs/test-environment.md](gfx1100/docs/test-environment.md)。
 
 | | |
@@ -89,7 +89,7 @@ gfx1100/
 | 提示词/输出 | 固定约 **1.5K token** 提示词，**256 token** 输出上限，`temperature 0` |
 | 取样 | 丢弃 2 次预热；基线 16 次 / 对照组 32 次；`decode_tok_s` 取自 `/metrics`，按请求时间戳匹配 |
 
-> ⚠️ **那 47 个环境变量没有编译进任何默认值。** `arch_defaults.cpp` 只有 gfx12、gfx1151 和
+> ⚠️ **那 44 个环境变量没有编译进任何默认值。** `arch_defaults.cpp` 只有 gfx12、gfx1151 和
 > iGPU 三个分支，**没有 gfx1100**。用本仓库源码编译、以上游默认配置启动，跑的是**未调优**的
 > 引擎，这组数字复现不出来。请使用 `gfx1100/configs/fork-8090.example.json`。
 
