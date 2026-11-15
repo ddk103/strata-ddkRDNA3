@@ -59,9 +59,10 @@ gfx1100/
 │   ├── TUNING-LOG.md            every change with its old value, new value and rollback
 │   ├── quantization-plan.md     domain-specific quantization via imatrix + per-tensor types
 │   ├── comparison-protocol.md   how to A/B two configs or models
+│   ├── tuning-verdicts.md       which switches are real, no-ops, or machine-bound
 │   └── corpus-notes.txt         how the calibration corpus was assembled
 ├── configs/
-│   ├── fork-8090.example.json   engine config sample (47 env vars, queue and cache settings)
+│   ├── fork-8090.example.json   engine config sample (44 env vars, queue and cache settings)
 │   ├── glm-3.0bit.example.json  GLM-5.3-Flash launch config on PolyStrata
 │   └── game-types.txt           llama-quantize per-tensor precision table
 ├── bench/
@@ -76,7 +77,7 @@ gfx1100/
 ## Tested configuration
 
 **Every number below was measured on this exact setup.** Change the model, the quant,
-the engine flags or the driver and the figures no longer compare. The full list — all 47
+the engine flags or the driver and the figures no longer compare. The full list — all 44
 environment variables, every launch flag — is in
 [gfx1100/docs/test-environment.md](gfx1100/docs/test-environment.md).
 
@@ -92,7 +93,7 @@ environment variables, every launch flag — is in
 | Prompt / output | fixed ~**1.5K token** prompt, **256 token** cap, `temperature 0` |
 | Sampling | 2 warm-ups discarded; 16 baseline / 32 treatment runs; `decode_tok_s` from `/metrics` matched by request timestamp |
 
-> ⚠️ **The 47 environment variables are not compiled into any default.** `arch_defaults.cpp`
+> ⚠️ **The 44 environment variables are not compiled into any default.** `arch_defaults.cpp`
 > ships branches for gfx12, gfx1151 and iGPU parts — **not for gfx1100**. Building this tree
 > and starting it with upstream defaults gives you the *untuned* engine, and none of these
 > numbers reproduce. Use `gfx1100/configs/fork-8090.example.json`.

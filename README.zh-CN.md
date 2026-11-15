@@ -57,6 +57,7 @@ gfx1100/
 │   ├── TUNING-LOG.md            每项改动的原值、新值、验证和回滚
 │   ├── quantization-plan.md     领域特化量化：imatrix + 逐张量精度
 │   ├── comparison-protocol.md   两个配置/模型的对比协议
+│   ├── tuning-verdicts.md       哪些开关真有效、哪些是空操作、哪些不能照搬
 │   └── corpus-notes.txt         校准语料的构建说明
 ├── configs/
 │   ├── fork-8090.example.json   引擎配置样例（44 个环境变量、队列与会话缓存）
