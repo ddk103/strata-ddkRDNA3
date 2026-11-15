@@ -1,0 +1,30 @@
+{
+ "exe": "E:\\Strata\\src\\PolyStrata\\engine-poly\\strata-poly.exe",
+ "args": [
+  "--model",
+  "D:\\Strata-data-v31\\models\\GLM-5.3-Flash-3.0BIT\\GLM-5.3-Flash-GSQ-RCO-3.0bit-q4kattn.gguf",
+  "--max-context",
+  "65536",
+  "--expert-profile",
+  "E:\\Strata\\src\\PolyStrata-data\\packs\\glm-3.0bit\\expert-profile.txt",
+  "--draft-model",
+  "E:\\Strata\\src\\PolyStrata-data\\mtp\\glm-5.3-flash\\draft-block.gguf",
+  "--conversation-cache-mib",
+  "auto",
+  "--kv-whole"
+ ],
+ "cwd": "E:\\Strata\\src\\PolyStrata",
+ "tokenizer": "E:\\Strata\\src\\PolyStrata-data\\packs\\glm-3.0bit\\tokenizer",
+ "model_name": "glm-5.3-flash-3.0bit",
+ "display_name": "GLM 5.3 Flash 3.0BIT",
+ "log": "E:\\Strata\\src\\PolyStrata\\strata-glm-3.0bit.log",
+ "lib_dirs": [
+  "E:\\Strata\\src\\PolyStrata\\.rocm-win\\Lib\\site-packages\\_rocm_sdk_devel\\bin"
+ ],
+ "port": 8091,
+ "gpu": 0,
+ "gpus_asked": true,
+ "backend": "hip",
+ "open_browser": false,
+ "env": null
+}

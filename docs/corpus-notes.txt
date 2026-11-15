@@ -1,0 +1,38 @@
+这个目录里的 .txt 会被 1-imatrix.cmd 自动合并成校准语料。
+当前共 12.98 MB，已在 5~20 MB 的目标区间内。
+
+=== 已有的 ===
+
+00-skills.txt      0.13 MB   你的技能文档（procedural-3d-game 等 16 个 markdown）
+                             领域词汇密度高：GLSL 22 / AgX 13 / PCSS 8 / shadow 17
+
+01-code-godot.txt  9.17 MB   Godot 官方文档（master 分支，只取英文）
+                             tutorials 401 篇 + getting_started 33 篇 + engine_details 67 篇
+                             + classes API 参考 4 MB 采样
+                             GDScript 2240 次 / Godot 6590 次
+
+02-code-unity.txt  0.74 MB   三个 MIT 许可的开源 Unity 工程：
+                             SebLague/Procedural-Planets（程序化星球）
+                             SebLague/Marching-Cubes（等值面）
+                             SebLague/Clouds（体积云，含 HLSL）
+
+03-agent.txt       2.95 MB   从你的 DSH 会话日志自动抽取的 agent 轨迹
+                             8257 条：702 用户 / 903 助手 / 3288 工具调用 / 3364 工具返回
+
+=== 刻意没有收的 ===
+
+- 文学、小说、散文、新闻、闲聊
+- 非中英日的语言版本
+- 图片、二进制、生成物、第三方依赖
+- Unreal Engine 5：Epic 的源码仓库需要绑定账号才能访问，
+  文档也有版权，无法合规自动获取。若要加，需要你自己提供 UE 工程里的
+  C++ 模块和 .usf/.ush 着色器。
+
+=== 还能怎么增强 ===
+
+1. 你自己的游戏工程代码（最高价值）——把 *.gd / *.cs / *.hlsl 拼进来
+2. 更多 Unity 开源工程（当前 Unity 只占 0.74 MB，偏少）
+3. 你的设计文档、调参记录、推导笔记
+
+注意：imatrix 只看激活统计，5 MB 纯领域语料 > 100 MB 混杂语料。
+现在 13 MB 已经足够，再往上加收益递减。
