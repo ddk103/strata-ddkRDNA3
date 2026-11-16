@@ -96,7 +96,8 @@
                 "STRATA_PREFILL_RING":  "512",
                 "STRATA_GDN_CONVL2":  "1",
                 "STRATA_POOL_FUSE_PHASES":  "1",
-                "STRATA_PREFILL_CPU_SHARE":  "auto"
+                "STRATA_PREFILL_CPU_SHARE":  "auto",
+                "STRATA_PLE_BATCH":  "0"
             },
     "backend":  "hip",
     "tokenizer":  "D:\\Strata-data-v31\\packs\\unsloth-ud-iq4_xs-v31\\tokenizer",
