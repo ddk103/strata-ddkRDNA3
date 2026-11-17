@@ -192,3 +192,38 @@ STRATA_WAIT_FUSE=1
 2. **Windows 11 + HIP** 环境；Linux + 官方 ROCm 栈未测。
 3. 各次测量之间隔了数小时，机器状态（GPU 温度、后台负载）不完全一致。
 4. 噪声约 3~5%，小于这个幅度的差异不应被当作真实提升。
+
+---
+
+## 2026-11-18：`STRATA_ARENA_PIN_GIB` 从 `56` 改为 `auto`
+
+原来示例配置里写死 `STRATA_ARENA_PIN_GIB=56`，这是按本机 125.5 GiB 调出来的。
+第三方评测者在 94 GiB 的机器上照搬，专家槽位从 7368 掉到 6951（见
+`community-status-20261116.md` 的评测核实）——**写死的值不可移植**。
+
+源码 `include/strata/core/pinned.hpp` 给出了四个可选值：
+
+| 取值 | 行为 |
+|---|---|
+| 不设置 | -1，引擎自己决定（0.1.30 的行为） |
+| `auto` | -2，Windows 下按 GPU 共享内存预算切片 |
+| `0` | 不设上限，整个专家 arena 都注册 |
+| `N` | 最多 N GiB |
+
+`pinned.cu` 里 `sliced_pin_limit()` 的注释说明了 `auto` 的算法：
+
+```
+4 GiB of the budget stay free for what the engine allocates after the arena;
+without the DXGI numbers, RAM/2 - 8 GiB (the budget is about half the RAM).
+```
+
+**在本机（125.5 GiB）auto ≈ 125.5 / 2 - 8 ≈ 54.8 GiB**，与原来的 56 只差 1.2 GiB，
+所以性能和槽位不会有可察觉的变化；换到 94 GiB 的机器上则自动算成约 39 GiB，
+不会再挤压系统内存。
+
+同一段注释还记录了一个真实事故，说明上限为什么必须存在：
+
+> pinned slice by slice until the driver refused one (28 GiB of a 63 GB PC), that
+> segment was left full and every later cudaMalloc failed "out of memory".
+
+**结论：示例配置改用 `auto`，删掉机器相关的魔数。**

@@ -1,4 +1,4 @@
-﻿{
+{
     "args":  [
                  "--expert-profile",
                  "E:\\Strata\\fork-1010\\data\\expert-profile.bin",
@@ -63,7 +63,7 @@
                 "STRATA_HIPBLASLT_TUNING":  "E:\\Strata\\fork-1010\\tuning\\gfx1100-hipblaslt-100401.txt",
                 "STRATA_SELECT_WMMA":  "1",
                 "STRATA_GDN_CHUNKED":  "1",
-                "STRATA_ARENA_PIN_GIB":  "56",
+                "STRATA_ARENA_PIN_GIB":  "auto",
                 "STRATA_PREFILL_AUTO_MAX":  "32768",
                 "ROCBLAS_TENSILE_LIBPATH":  "E:\\Strata\\fork-1010\\rocblas\\library",
                 "STRATA_RDNA_MMVQ_WAVE":  "3",
