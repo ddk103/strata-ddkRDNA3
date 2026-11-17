@@ -227,3 +227,82 @@ without the DXGI numbers, RAM/2 - 8 GiB (the budget is about half the RAM).
 > segment was left full and every later cudaMalloc failed "out of memory".
 
 **结论：示例配置改用 `auto`，删掉机器相关的魔数。**
+---
+
+## 2026-11-18：`--ple-io ram` 实测 +5.7% prefill，`ARENA_PIN_GIB=auto` 多给 104 槽位
+
+### 测量方法
+
+引擎的 bench 走 HTTP，而 HTTP 服务在启动器那一层。为了不依赖客户端，直接用引擎自带的
+生成模式测：
+
+```
+llama-tokenize -m <shard1> -f <14 KB 语料片段> --ids     → 6683 个 token
+strata.exe --gpu 1 --tokens-file <ids> --max-new 8 <site args>
+```
+
+引擎自己打印计时，取 `prefill` / `decode` 两行。环境变量必须从配置的 `env` 段设置——
+不设 `ROCBLAS_TENSILE_LIBPATH` 会得到 `hipErrorInvalidDeviceFunction:98`。
+
+### `--ple-io` 六次测量
+
+| 组 | 模式 | prefill | decode | 首个 token |
+|---|---|---|---|---|
+| A1 | ram | 1109.47 tok/s | 39.02 tok/s | 6297 ms |
+| A2 | ram | 1091.52 | 42.07 | 6373 |
+| A3 | ram | 1108.38 | 44.52 | 6281 |
+| B1 | direct | 1047.09 | 41.27 | 6652 |
+| B2 | direct | 1047.57 | 42.56 | 6637 |
+| B3 | direct | 1035.64 | 42.64 | 6712 |
+
+```
+ram 平均    1103.1 tok/s   (1091.5 ~ 1109.5)
+direct 平均  1043.4 tok/s  (1035.6 ~ 1047.6)
+提升         +5.7%
+```
+
+**两组完全不重叠**：最慢的 ram（1091.5）仍快于最快的 direct（1047.6）。
+
+**decode 无差异**（41.9 vs 42.2 tok/s，8 token 样本不足以分辨）。首个 token 延迟从
+6667 ms 降到 6317 ms（−5.2%）。
+
+### 代价
+
+```
+PLE 表锁进内存（VirtualLock）:  28.8 GB
+启动时间:                       +8 ~ 25 秒
+专家文件可用页缓存:              48.7 GiB → 23.9 GiB
+```
+
+启动日志会显示 `PLE table locked in RAM (--ple-io ram) in 8.4 s`。
+
+**交易是划算的**：prefill 快 5.7%，decode 不受影响；代价是 RAM 占用和启动延迟。
+
+### `STRATA_ARENA_PIN_GIB=auto`
+
+| 取值 | 专家槽位 | VRAM |
+|---|---|---|
+| `56`（写死） | 5826 | 13.31 GiB |
+| **`auto`** | **5930** | **13.53 GiB** |
+
+**`auto` 比写死的 56 还多 104 个槽位**（+1.8%）。`sliced_pin_limit()` 用
+`RAM/2 − 8 GiB ≈ 54.8 GiB`，比硬编码的 56 更贴合实际，留出了更多 VRAM 给专家缓存。
+并且它是可移植的：94 GiB 的机器上会算成约 39 GiB。
+
+### 顺带记录：引擎自带的一条警告
+
+```
+strata: WARNING --prefill auto: prompt chunks of 8192 tokens or more crashed
+the engine on Windows HIP (RX 7900 XTX: the commit charge jumped ~70 GB, exit code ...)
+```
+
+`--prefill auto` 在 Windows HIP 上，8192 token 以上的 chunk 会让提交内存跳涨约 70 GB 并
+崩溃。当前的 `STRATA_PREFILL_AUTO_MAX=32768` 需要留意这条。
+
+### 已固化到配置的三项
+
+| 项 | 旧值 | 新值 | 依据 |
+|---|---|---|---|
+| `STRATA_ARENA_PIN_GIB` | `56` | `auto` | 多 104 槽位且可移植 |
+| `--ple-io` | 未设（direct） | `ram` | prefill +5.7% |
+| `STRATA_PF_FUSED` | `1` | 移除 | PR #999：gfx1100 上 parity within noise |

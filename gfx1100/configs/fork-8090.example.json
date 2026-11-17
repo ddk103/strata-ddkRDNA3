@@ -1,4 +1,4 @@
-{
+﻿{
     "args":  [
                  "--expert-profile",
                  "E:\\Strata\\fork-1010\\data\\expert-profile.bin",
@@ -30,6 +30,8 @@
                  "D:\\Strata-data-v31\\models\\unsloth-UD-IQ4_XS-v31\\Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
                  "--ple-gguf",
                  "D:\\Strata-data-v31\\models\\unsloth-UD-IQ4_XS-v31\\Qwen3.8-Flash-Next-UD-IQ4_XS-00004-of-00004.gguf",
+                 "--ple-io",
+                 "ram",
                  "--max-context",
                  "262144",
                  "--prefill",
@@ -59,7 +61,6 @@
                 "STRATA_GR_RDNA":  "1",
                 "STRATA_HIP_WMMA":  "1",
                 "STRATA_PF_GEMM":  "1",
-                "STRATA_PF_FUSED":  "1",
                 "STRATA_HIPBLASLT_TUNING":  "E:\\Strata\\fork-1010\\tuning\\gfx1100-hipblaslt-100401.txt",
                 "STRATA_SELECT_WMMA":  "1",
                 "STRATA_GDN_CHUNKED":  "1",
