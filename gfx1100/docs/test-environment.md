@@ -3,9 +3,13 @@
 > 本仓库 `README.md` 里所有性能数字，都是在这套配置下测出来的。
 > 换了任何一项（模型、量化、引擎参数、驱动版本），数字都不能直接比。
 
-> **⚠️ 与 `configs/fork-8090.example.json` 的差异（2026-11-16 更新）**
+> **⚠️ 与 `configs/fork-8090.example.json` 的差异（2026-11-16 与 2026-11-23 两次更新）**
 >
-> 测量时用的是 **47 个环境变量 + `--max-context 524288 --rope-scaling yarn --rope-scale 2`**。
+> **测量当时**用的是 **47 个环境变量 + `--max-context 524288 --rope-scaling yarn --rope-scale 2`**。
+> **示例配置现在是 45 项、`--max-context 262144`、不启用 yarn、并加入 `--adapt-min-gain 1.8`。**
+> 45 = 47 减去下面第 3 条里的两个 no-op（`STRATA_PF_GROUP_RES`、`STRATA_PA_KLDS`）；
+> `STRATA_HIPBLASLT_TABLE` 保留但已注明在设了 TUNING 后无效。
+>
 > 后来一位第三方使用者实测指出，并回到源码核实确认了三个问题：
 >
 > 1. 模型原生上下文只有 **262,144**（GGUF 元数据 `qwen4exp.context_length`），
@@ -13,11 +17,28 @@
 > 2. `STRATA_HIPBLASLT_TABLE` 在设了 `STRATA_HIPBLASLT_TUNING` 时**完全不生效**
 > 3. `STRATA_PF_GROUP_RES`、`STRATA_PA_KLDS` 在本版本是 **no-op**
 >
-> 示例配置已改为修正后的 **44 项、`--max-context 262144`、不启用 yarn**。
 > **本文的性能数字不受影响**：基准用的是约 1.5K token 的提示词，
 > `--max-context` 和 rope 设置在这个长度上不参与计算。
-> 逐条核实记录见 [tuning-verdicts.md](tuning-verdicts.md)。
+> 逐条核实记录见 [tuning-verdicts.md](tuning-verdicts.md)，部署问题见下面的 §0 与 §10–§15。
 
+---
+
+## 0. 部署自检清单（照教程部署完，先做这 6 件事）
+
+**在相信任何性能数字之前逐条确认。任何一条没通过，数字都不可比。**
+
+| # | 检查项 | 怎么查 | 通过的样子 |
+|---|---|---|---|
+| 1 | 配置真的生效了 | 启动日志 `engine started:` 那一行 | 后面完整列出 `--pack`、`--native`、`--kv int8`、`--adapt-every 1`、`--adapt-min-gain 1.8` 等你需要的参数 |
+| 2 | 专家缓存进得了显存 | 日志 `N of M routed experts in VRAM (X GiB)` | 24 GB 卡上 X 应在 **12–14 GiB**；只有 6–8 GiB 说明被别的进程、KV 或 `--vram-reserve-mib` 占走了 |
+| 3 | 跑在独显上 | 日志里的 GPU 型号行，或确认 `--gpu` 已设 | 显示 **`gfx1100`**，不是 `gfx1036`（核显）。见 §10 |
+| 4 | hipBLASLt 表版本匹配 | 见 [tuning-verdicts.md](tuning-verdicts.md) §2 与 §七 | 文件名里的数字 = 本机 `hipblaslt` 的版本（100100 / 100200 / 100401 / 100500） |
+| 5 | 预热后再测 | 连续发 3 次同样的请求，取第 3 次 | 第 1 次慢 2–3 倍是正常的（graph capture + 页缓存），见 §13 |
+| 6 | 阶段分解有数据 | 服务端环境加 `STRATA_DECODE_TIMING=1` | 日志出现 `tokens/window ... ms/window`，且 verify 里的 CPU 与 GPU 两段都接近 §7 的量级 |
+
+**怎么读数字**：引擎内部 decode =
+`tokens/window ÷ ms/window`。它和客户端看到的墙钟 tok/s 不是一回事——
+墙钟包含预填、排队、网络。报数字时必须说明用的是哪一个，否则无法比较。
 
 ---
 
@@ -306,3 +327,121 @@ the engine on Windows HIP (RX 7900 XTX: the commit charge jumped ~70 GB, exit co
 | `STRATA_ARENA_PIN_GIB` | `56` | `auto` | 多 104 槽位且可移植 |
 | `--ple-io` | 未设（direct） | `ram` | prefill +5.7% |
 | `STRATA_PF_FUSED` | `1` | 移除 | PR #999：gfx1100 上 parity within noise |
+
+---
+
+# 部署：设备、内存、系统与常见错误
+
+> 下面六节不是性能调优，是**"别人照教程部署时最容易卡住或跑偏的地方"**。
+> 它们不改变引擎行为，但决定别人测出来的数字是不是你的数字。
+
+## 10. 设备选择：CPU 带核显的机器（9700X / 9950X 等）
+
+Ryzen 7000/9000 的非 F 型号（9700X、9950X、7900X 等）自带 **Radeon 核显 `gfx1036`**，
+它和独显同时出现在 HIP 的设备列表里，而且**默认设备不保证是独显**。
+
+**症状（任一即是）**
+
+- 启动报 `hipErrorInvalidDeviceFunction:98`
+- 启动报 `rocBLAS error: Cannot read ...\library/TensileLibrary.dat: No such file or
+  directory for GPU arch : gfx1036`
+- 能启动，但 decode 只有个位数 tok/s（实际跑在核显上）
+
+**修法（二选一）**
+
+1. 配置的 `env` 段加 `HIP_VISIBLE_DEVICES=1`（独显通常是 1；顺序用引擎启动日志或 `hipInfo` 确认）
+2. 启动参数加 `--gpu 1`
+
+```jsonc
+"env": { "HIP_VISIBLE_DEVICES": "1" }
+// 或
+"args": [ "--gpu", "1", ... ]
+```
+
+**验证**：启动日志里出现 `gfx1100`。核显只有 2 GB 共享显存，放不下专家缓存，
+表现通常是加载极慢或显存不足。
+
+上游更完整的说明：[docs/AMD_HIP.md](../../docs/AMD_HIP.md)（设备选择那一节）。
+
+## 11. 页面文件与提交内存（Windows 必看）
+
+引擎把 87 GB 权重 mmap 进来，再加上 pinned arena（`STRATA_ARENA_PIN_GIB=auto`，本机约 54.8 GiB）
+和预填缓冲，**提交内存（commit charge）的峰值远高于任务管理器里看到的"物理内存占用"**。
+
+实测：`--prefill auto` 遇到 8192 token 以上的 chunk 时，提交内存会跳涨约 70 GB；
+页面文件不够时**直接崩溃，退出码非 0，日志里没有报错**。
+
+**建议**
+
+- 保持"系统管理页面文件"，或在放模型的那块盘上手动设 **32–64 GB**
+- 即使有 128 GB 物理内存也不要关页面文件
+- 实在不能加页面文件，就把 `STRATA_PREFILL_AUTO_MAX` 降到 8192 以下（代价是长 prompt 变慢）
+
+## 12. Windows Defender 排除（否则数字会抖）
+
+实时保护会扫描 87 GB 权重以及每次 mmap 的页，**首次加载和预填会被拖慢，且随机**——
+同一配置两次能差 10% 以上，很容易被误判成"引擎不稳定"。
+
+把这三类路径加进 Windows 安全中心的排除项：
+
+- 模型与 pack 目录（如 `D:\Strata-data-v31`）
+- 引擎目录（如 `E:\Strata\fork-1010-fuse`）
+- 服务端 Python 目录（`...\terminal\current\python`）
+
+改完要重启服务再测。
+
+## 13. 第一次请求为什么慢（必须预热）
+
+启动后的第一次请求包含三件一次性工作：
+
+- 逐窗口的 graph capture（本机实测：1-token 窗口 **91 ms**，2–6 token 窗口各约 **5 ms**）
+- 权重页首次从 SSD 读入
+- 专家 profile 预热
+
+所以第一请求的 decode 可能只有稳态的 **1/3**。基准必须预热 **2–3 次**再计时，
+否则测到的是冷启动，不是引擎性能。
+
+## 14. 常见部署错误 → 症状 → 修法
+
+| 症状 | 最可能的原因 | 修法 |
+|---|---|---|
+| 启动即崩、日志无报错、退出码非 0 | 页面文件 / 提交内存不够 | §11 |
+| `hipErrorInvalidDeviceFunction:98` 或 `TensileLibrary.dat ... gfx1036` | 选中了核显 | §10 |
+| 能跑，但 decode 只有 30–50 tok/s | 环境变量没生效，跑的是未调优状态 | §0 第 1 条，看 `engine started:` 行 |
+| prefill 只有 700–900 tok/s | hipBLASLt 表版本不匹配，或没开 `STRATA_PREFILL_MMQ` | [tuning-verdicts.md](tuning-verdicts.md) §2 |
+| decode 比教程低约 8% | 用了默认 fp16 KV | 加 `--kv int8` |
+| 长上下文答非所问、质量下降 | 用了 `--max-context 524288` + yarn 2 | 改回 `262144`，去掉 yarn |
+| 回答被截断 / 提示超过 max tokens | 客户端 `max_tokens` 或思考预算 | §15 |
+| 多客户端并发时 429 或长时间卡住 | 没设 `max_queue` / `queue_timeout` | 设 `5` / `270` |
+| 同一配置数字抖 10% 以上 | Defender 扫描、后台负载、没预热 | §12、§13 |
+
+## 15. 回答被截断（"超过 max tokens"）
+
+有两个**互不相干**的限制，表现都是"话说一半"：
+
+1. **客户端请求里的 `max_tokens`**（OpenAI 兼容接口）。设成 256 就是硬切在第 256 个 token，
+   和引擎能力无关。
+2. **服务端 `reasoning_budget_tokens`**（本机配置 **65536**）。它是思考预算，不是输出上限。
+
+建议：
+
+- 客户端 `max_tokens` ≥ **1024**；写长文/长代码给 **4096**
+- 需要确定性输出时同时设 `temperature 0`
+- 用 `/metrics` 或响应里的 `usage.completion_tokens` 确认是否真的撞上了上限
+  （`finish_reason` 为 `length` 就是被截断）
+
+## 16. 硬件预期表（别人该期待什么）
+
+同一套配置，硬件不同数字差很多。用这张表判断"我的成绩是否正常"，
+而不是直接和本文的 24 GB / 125.5 GiB 那台机器比。
+
+| 机器 | 专家驻留 | 预期 decode（内部） | 说明 |
+|---|---|---|---|
+| 7900 XTX 24 GB + 128 GB RAM（本文） | 12–14 GiB | 96–99 tok/s | 参照机 |
+| 7900 XTX 24 GB + 64 GB RAM | 12–14 GiB | 85–95 tok/s | arena 变小，CPU 侧页命中下降 |
+| 7900 XT 20 GB + 64 GB RAM | 9–11 GiB | 75–88 tok/s | 显存少 4 GB，约少 500 个专家槽位 |
+| 16 GB 卡（7800 XT / 9060 XT）+ 64 GB | 5–7 GiB | 55–70 tok/s | 命中率明显下降 |
+| 32 GB RAM | 12–14 GiB | 45–65 tok/s | 专家副本放不下，频繁读盘 |
+| 带核显且没设设备 | — | 个位数 | 见 §10 |
+
+> 这些区间来自本仓与社区记录的换算，不是逐台实测；噪声 ±10%，看量级即可。

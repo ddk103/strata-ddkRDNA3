@@ -21,6 +21,8 @@
                  "32",
                  "--adapt-decay",
                  "0.97",
+                 "--adapt-min-gain",
+                 "1.8",
                  "--pool-workers",
                  "8",
                  "--grammar",
@@ -38,11 +40,7 @@
                  "--ple-gguf",
                  "<STRATA_DATA>\\models\\unsloth-UD-IQ4_XS-v31\\Qwen3.8-Flash-Next-UD-IQ4_XS-00004-of-00004.gguf",
                  "--max-context",
-                 "524288",
-                 "--rope-scaling",
-                 "yarn",
-                 "--rope-scale",
-                 "2",
+                 "262144",
                  "--prefill",
                  "auto",
                  "--kv-resident",
@@ -69,9 +67,7 @@
                 "STRATA_RDNA_MMVQ_WAVE":  "3",
                 "STRATA_WAIT_FUSE":  "1",
                 "STRATA_PREFILL_CPU_SHARE_MAX":  "6144",
-                "STRATA_PF_GROUP_RES":  "1",
                 "STRATA_COMBINE_CPU":  "1",
-                "STRATA_PA_KLDS":  "1",
                 "STRATA_PF_PAD":  "1",
                 "STRATA_GR_FUSED":  "1",
                 "STRATA_GDN_NOY":  "1",
@@ -105,5 +101,10 @@
                      "presence_penalty":  0
                  },
     "port":  8090,
-    "_note":  "Paths are placeholders: replace <STRATA_DATA>, <STRATA_HOME>, <ENGINE_DIR>, <FORK_DIR> with your own. Measured on RX 7900 XTX 24 GB + 125 GiB RAM with Unsloth UD-IQ4_XS 87.24 GB: decode 108 tok/s warm (short prompt, 600-token output), 94 tok/s at 22K context, prefill 2,700 tok/s. See gfx1100/docs/benchmarks-20261120.md for the exact conditions."
+    "max_queue":  5,
+    "queue_timeout":  270,
+    "reasoning_budget_tokens":  65536,
+    "gpu":  null,
+    "_note":  "Paths are placeholders: replace <STRATA_DATA>, <STRATA_HOME>, <ENGINE_DIR>, <FORK_DIR> with your own. Measured on RX 7900 XTX 24 GB + 125 GiB RAM with Unsloth UD-IQ4_XS 87.24 GB: 96-99 tok/s decode (engine-internal, 1.5K-token prompt, 256-token output, warmed), ~94 tok/s at 22K context, ~2,700 tok/s prefill. See gfx1100/docs/benchmarks-20261120.md for the exact conditions and test-environment.md section 0 for the self-check list.",
+    "_deploy_note":  "1) Keep --max-context 262144: the model's native limit is 262,144 (GGUF qwen4exp.context_length); 524288 with yarn 2 is extrapolation and degrades long-context quality. 2) If your CPU has an integrated Radeon (Ryzen 7000/9000 non-F, e.g. 9700X/9950X, gfx1036), set \"gpu\": 1 or add HIP_VISIBLE_DEVICES=1 to env, otherwise the engine may load on the iGPU (hipErrorInvalidDeviceFunction:98, or a rocBLAS TensileLibrary.dat error naming gfx1036). 3) STRATA_PF_GROUP_RES and STRATA_PA_KLDS are no-ops in this version and were removed from this example; STRATA_HIPBLASLT_TABLE=on has no effect once STRATA_HIPBLASLT_TUNING is set. 4) Match the hipBLASLt tuning file to your installed hipBLASLt version (100100 / 100200 / 100401 / 100500) - a mismatched name silently falls back and costs 25-40% prefill. 5) max_queue 5 + queue_timeout 270 keeps concurrent clients from piling up; reasoning_budget_tokens 65536 is the thinking budget, not the output cap, so keep the client's max_tokens at 1024 or more. 6) Windows: give the page file 32-64 GB and exclude the model/pack/engine folders from Defender, or results will swing by 10%+."
 }

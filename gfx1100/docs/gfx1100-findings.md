@@ -163,3 +163,53 @@ python bench/bench.py baseline 16
 - 从 `/metrics` 按请求时间戳取对应的 `decode_tok_s`
   （**不要**直接取 `requests[-1]`，环形缓冲不保证顺序）
 - 跳过重启后的前 5 个请求（冷缓存不可比）
+
+---
+
+## 11. 部署类的三个坑（不是性能调优，但决定别人测不测得出你的数字）
+
+### 11.1 核显抢设备
+
+9700X / 9950X / 7900X 这类非 F 的 Ryzen 自带 **Radeon 核显 `gfx1036`**，
+它和 7900 XTX 同时出现在 HIP 设备列表里，**默认设备不保证是独显**。
+
+我们自己在另一套引擎（PolyStrata）上就撞过：
+
+```
+rocBLAS error: Cannot read .../TensileLibrary.dat: No such file or directory
+for GPU arch : gfx1036
+the engine process ended: exit code 0xC0000409: stack buffer overrun
+```
+
+**修法**：`env` 里加 `HIP_VISIBLE_DEVICES=1`，或启动参数加 `--gpu 1`。
+验证方式：启动日志里出现 `gfx1100`。
+详细步骤见 [test-environment.md](test-environment.md) §10。
+
+### 11.2 hipBLASLt 表必须匹配版本
+
+表文件名里的数字是**编表的 hipBLASLt 版本**，不是引擎版本：
+
+```
+gfx1100-hipblaslt-100100.txt   ← ROCm 7.1 时代
+gfx1100-hipblaslt-100401.txt   ← 本机在用（ROCm 7.2）
+gfx1100-hipblaslt-100500.txt   ← 更新的一批
+```
+
+版本不匹配时**不会报错**，而是静默回退到未编表的路径。
+实测代价：16K 提示词从 1,186 tok/s 掉到 769 tok/s（**−35%**）。
+
+**怎么查自己的版本**：看安装目录里 `hipblaslt` 的 dll 版本号，
+或看 `HIPBLASLT_TENSILE_LIBPATH` 指向的目录名；不确定就逐个试，
+用同一个 16K prompt 比 prefill，差 25% 以上就是表没生效。
+
+### 11.3 页面文件、Defender、预热
+
+这三条不影响正确性，但会让同一份配置的数字抖 10% 以上：
+
+- **页面文件**：`--prefill auto` 遇到 8192+ token 的 chunk 时提交内存会跳涨 ~70 GB，
+  页面文件不够就是**无日志崩溃**（退出码非 0）
+- **Defender**：实时扫描 87 GB 权重，首次加载和预填被拖慢且随机
+- **预热**：启动后第一次请求含 graph capture（1-token 窗口 91 ms）与页缓存，
+  decode 可能只有稳态的 1/3
+
+设置方法与症状对照表见 [test-environment.md](test-environment.md) §11–§14。
